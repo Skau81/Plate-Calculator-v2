@@ -1,0 +1,211 @@
+
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Vægtskive-beregner v2</title>
+<style>
+  :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;line-height:1.4}
+  body{max-width:900px;margin:18px auto;padding:18px}
+  h1{margin:6px 0 12px;font-size:20px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  label{font-size:14px}
+  input[type="number"],input[type="text"],select{padding:8px;border:1px solid #ccc;border-radius:6px;min-width:90px}
+  button{padding:10px 12px;border-radius:8px;border:0;background:#111;color:#fff;cursor:pointer}
+  button.secondary{background:#666}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{padding:8px;border:1px solid #eee;text-align:left;font-size:14px}
+  .plate-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  .plate-input{width:110px}
+  .solutions{margin-top:12px}
+  .solution{border:1px solid #ddd;padding:10px;border-radius:8px;margin-bottom:8px}
+  .muted{color:#666;font-size:13px}
+  .small{font-size:13px}
+  pre{background:#f6f6f6;padding:8px;border-radius:6px;overflow:auto}
+  @media (max-width:600px){.row{flex-direction:column} input[type="number"]{width:100%}}
+</style>
+</head>
+<body>
+<h1>Vægtskive-beregner v2</h1>
+<p class="muted">Indtast ønsket total vægt (stang + skiver). Appen husker dine plader og stænger.</p>
+
+<div class="row">
+  <label>Ønsket total vægt (kg)
+    <input id="targetWeight" type="number" step="0.25" placeholder="Indtast vægt">
+  </label>
+  <label>Vælg stang
+    <select id="barSelect"></select>
+  </label>
+  <button id="addBarBtn" class="secondary">Tilføj ny stang</button>
+  <button id="resetBtn" class="secondary">Nulstil alt</button>
+</div>
+
+<h3>Tilgængelige skiver (antal = total antal skiver)</h3>
+<div id="platesContainer"></div>
+<button id="addPlateBtn" class="secondary">Tilføj ny skive</button>
+
+<button id="calcBtn">Beregn løsninger</button>
+
+<div id="result" class="solutions" aria-live="polite"></div>
+
+<script>
+// --- LocalStorage keys ---
+const STORAGE_PLATES = "plates_v2";
+const STORAGE_BARS = "bars_v2";
+const STORAGE_LAST_BAR = "lastBar_v2";
+
+// --- Default plates ---
+const defaultPlates = [
+  {w:25,c:2},{w:20,c:2},{w:10,c:2},{w:5,c:2},{w:2.5,c:2},{w:1.25,c:2}
+];
+const defaultBars = [
+  {name:"Olympisk 20kg", w:20},
+  {name:"EZ-bar 10kg", w:10}
+];
+
+// --- Utility ---
+function savePlates(plates){ localStorage.setItem(STORAGE_PLATES, JSON.stringify(plates)); }
+function saveBars(bars){ localStorage.setItem(STORAGE_BARS, JSON.stringify(bars)); }
+function saveLastBar(name){ localStorage.setItem(STORAGE_LAST_BAR, name); }
+
+function loadPlates(){ return JSON.parse(localStorage.getItem(STORAGE_PLATES)||JSON.stringify(defaultPlates)); }
+function loadBars(){ return JSON.parse(localStorage.getItem(STORAGE_BARS)||JSON.stringify(defaultBars)); }
+function loadLastBar(){ return localStorage.getItem(STORAGE_LAST_BAR)||defaultBars[0].name; }
+
+// --- Plates UI ---
+const platesContainer = document.getElementById('platesContainer');
+function createPlateRow(plate){
+  const wrapper = document.createElement('div');
+  wrapper.className = 'plate-row';
+  wrapper.innerHTML = `
+    <label class="small">Vægt (kg)
+      <input class="plate-weight" type="number" step="0.25" value="${plate.w}">
+    </label>
+    <label class="small">Antal (stk)
+      <input class="plate-count" type="number" step="1" value="${plate.c}" min="0">
+    </label>
+    <button class="removeBtn secondary">Fjern</button>
+  `;
+  wrapper.querySelector('.removeBtn').addEventListener('click', ()=>{wrapper.remove(); saveCurrentPlates();});
+  wrapper.querySelector('.plate-weight').addEventListener('input', saveCurrentPlates);
+  wrapper.querySelector('.plate-count').addEventListener('input', saveCurrentPlates);
+  return wrapper;
+}
+
+function renderPlates(){
+  platesContainer.innerHTML = '';
+  const plates = loadPlates();
+  plates.forEach(p=>platesContainer.appendChild(createPlateRow(p)));
+}
+function saveCurrentPlates(){
+  const rows = [...platesContainer.querySelectorAll('.plate-row')];
+  const plates = rows.map(r=>({w:parseFloat(r.querySelector('.plate-weight').value)||0, c:parseInt(r.querySelector('.plate-count').value)||0})).filter(p=>p.w>0);
+  savePlates(plates);
+}
+document.getElementById('addPlateBtn').addEventListener('click', ()=>{platesContainer.appendChild(createPlateRow({w:2.5,c:0})); saveCurrentPlates();});
+
+// --- Bars UI ---
+const barSelect = document.getElementById('barSelect');
+function renderBars(){
+  const bars = loadBars();
+  barSelect.innerHTML = "";
+  bars.forEach(b=>{
+    const opt = document.createElement('option');
+    opt.value = b.name;
+    opt.textContent = b.name+" ("+b.w+" kg)";
+    barSelect.appendChild(opt);
+  });
+  barSelect.value = loadLastBar();
+}
+document.getElementById('addBarBtn').addEventListener('click', ()=>{
+  const name = prompt("Navn på stang");
+  const w = parseFloat(prompt("Vægt (kg)"))||0;
+  if(name && w>0){
+    const bars = loadBars();
+    bars.push({name:name,w:w});
+    saveBars(bars);
+    renderBars();
+    barSelect.value = name;
+    saveLastBar(name);
+  }
+});
+
+barSelect.addEventListener('change', ()=>saveLastBar(barSelect.value));
+
+// --- Reset ---
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  if(confirm("Nulstil plader og stænger til standard?")){
+    localStorage.removeItem(STORAGE_PLATES);
+    localStorage.removeItem(STORAGE_BARS);
+    localStorage.removeItem(STORAGE_LAST_BAR);
+    renderPlates();
+    renderBars();
+  }
+});
+
+// --- Calculation logic ---
+function readPlates(){
+  const rows = [...platesContainer.querySelectorAll('.plate-row')];
+  const plates = rows.map(r=>({w:parseFloat(r.querySelector('.plate-weight').value)||0,c:parseInt(r.querySelector('.plate-count').value)||0})).filter(p=>p.w>0 && p.c>0);
+  // aggregate same weights
+  const map = {};
+  plates.forEach(p=>map[p.w] = (map[p.w]||0)+p.c);
+  const arr = Object.keys(map).map(k=>({w:parseFloat(k),c:map[k]}));
+  arr.sort((a,b)=>b.w-a.w);
+  return arr;
+}
+
+function findSolutions(targetTotal, barWeight, plateDefs, maxSolutions){
+  const need = targetTotal - barWeight;
+  if(need < 0) return {error: 'Mål mindre end stangvægt.'};
+  const perSide = need/2;
+  const factor = 100; const targetInt = Math.round(perSide*factor);
+  const sizes = plateDefs.map(p=>Math.round(p.w*factor));
+  const pairs = plateDefs.map(p=>Math.floor(p.c/2));
+  const n = sizes.length; const solutions = [];
+  function dfs(idx,currentSum,choice){
+    if(solutions.length>=maxSolutions) return;
+    if(currentSum===targetInt){solutions.push(choice.slice()); return;}
+    if(idx===n) return;
+    let maxRem=0; for(let i=idx;i<n;i++) maxRem+=sizes[i]*pairs[i];
+    if(currentSum+maxRem<targetInt) return;
+    const maxUse = Math.min(pairs[idx], Math.floor((targetInt-currentSum)/sizes[idx]));
+    for(let use=maxUse;use>=0;use--){choice[idx]=use; dfs(idx+1,currentSum+use*sizes[idx],choice); choice[idx]=0; if(solutions.length>=maxSolutions) return;}
+  }
+  dfs(0,0,new Array(n).fill(0));
+  return {perSide:perSide, solutions:solutions.map(sol=>sol.map((c,i)=>({w:plateDefs[i].w,perSide:c,usedTotal:c*2}))) };
+}
+
+// --- Render results ---
+function renderResults(obj, plateDefs, targetTotal, barWeight){
+  const container = document.getElementById('result'); container.innerHTML='';
+  if(obj.error){container.innerHTML=`<div class="muted">${obj.error}</div>`; return;}
+  container.innerHTML=`<div class="small muted">Mål pr. side: <strong>${obj.perSide} kg</strong></div>`;
+  if(obj.solutions.length===0){container.innerHTML+=`<p class="muted">Ingen løsninger fundet.</p>`; return;}
+  obj.solutions.forEach((sln,idx)=>{
+    const div=document.createElement('div'); div.className='solution';
+    let html=`<div><strong>Løsning ${idx+1}</strong></div>`;
+    html+='<table><thead><tr><th>Vægt (kg)</th><th>Antal pr. side</th><th>Brugt totalt</th></tr></thead><tbody>';
+    sln.forEach(p=>{if(p.perSide>0) html+=`<tr><td>${p.w}</td><td>${p.perSide}</td><td>${p.usedTotal}</td></tr>`});
+    html+='</tbody></table>';
+    div.innerHTML=html; container.appendChild(div);
+  });
+}
+
+// --- Button calc ---
+document.getElementById('calcBtn').addEventListener('click', ()=>{
+  const target = parseFloat(document.getElementById('targetWeight').value)||0;
+  const bars = loadBars();
+  const bar = bars.find(b=>b.name===barSelect.value)||bars[0];
+  const plates = readPlates();
+  const res = findSolutions(target, bar.w, plates, 20);
+  renderResults(res, plates, target, bar.w);
+});
+
+// --- Init ---
+renderPlates(); renderBars();
+
+</script>
+</body>
+</html>
